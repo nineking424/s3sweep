@@ -1,0 +1,147 @@
+1. 개요
+본 문서는 Kubernetes 환경에서 rclone을 활용하여 수십만~수백만 개의 S3 객체를 GET 방식으로 다운로드 처리하기 위한 시스템의 요구사항과 설계를 정의한다.
+기존 NiFi 기반 파이프라인에서 발생한 메모리 과다 사용, repository 폭증, 복잡한 상태 관리 문제를 해결하는 것을 목표로 한다.
+
+본 시스템은 단순성, 예측 가능한 리소스 사용, 명확한 실패 추적, 수평 확장성을 최우선으로 고려한다.
+
+본 프로젝트의 이름은, s3sweep 이다.
+2. 목표
+- S3 LIST 없이 GET 요청만으로 파일 다운로드 처리
+- 파일 단위 성공/실패 상태를 정확히 추적
+- 메모리 사용량이 작업 수와 무관하게 안정적으로 유지될 것
+- Kubernetes 기반 수평 확장 지원
+- 장애 발생 시 재처리 및 원인 분석이 용이할 것
+
+3. 비목표
+- 복잡한 데이터 변환, 분기 처리
+- NiFi FlowFile, Content Repository 사용
+- 내부 메시지 큐(NATS, Kafka 등) 운영
+- 실시간 스트리밍 처리
+
+4. 전제 조건 및 제약 사항
+- 모든 파일의 source 경로를 사전에 알고 있음
+- S3 LIST API는 사용하지 않음
+- 파일마다 서로 다른 S3 endpoint, 계정, bucket을 사용할 수 있음
+- 파일 수는 매우 많으며 순차 또는 제한된 병렬 처리 필요
+- Kubernetes 환경 사용 가능
+
+5. 전체 아키텍처 개요
+- Kubernetes StatefulSet 기반 Worker 구조
+- 각 Pod는 고정된 identity를 가지는 독립 Worker 역할 수행
+- Worker는 외부 시스템으로부터 작업을 Pull 방식으로 가져옴
+- 각 작업은 rclone을 사용하여 파일 단위로 처리
+- 작업 결과는 즉시 외부 시스템으로 전송
+- rclone 설정은 사전에 정의되어 컨테이너로 주입됨
+
+6. Kubernetes 구성
+6.1 리소스 유형
+- StatefulSet 사용
+- Pod identity 예시
+  - rclone-worker-0
+  - rclone-worker-1
+  - rclone-worker-2
+
+6.2 StatefulSet 선택 이유
+- Pod 재시작 시 동일 identity 유지
+- Worker 단위 Sharding 가능
+- Pod별 책임 범위 명확
+- 디버깅 및 장애 분석 용이
+
+6.3 병렬성 제어
+- 병렬성은 StatefulSet replica 수로만 제어
+- rclone 내부 transfers 옵션은 사용하지 않음
+- Pod 1개 = Worker 1개 = 동시 작업 1개
+
+7. Worker 컨테이너 구조
+7.1 단일 컨테이너 구성
+- sidecar 없음
+- 단일 프로세스 구조
+
+7.2 디렉토리 구조 예시
+/app
+  worker.sh
+  rclone
+
+/etc/rclone
+  rclone.conf   (ConfigMap 또는 Secret으로 주입)
+
+7.3 rclone 설정 관리 원칙
+- rclone 설정 파일은 Kubernetes ConfigMap 또는 Secret으로 사전에 주입된다.
+- Worker는 rclone 설정 파일을 생성하거나 수정하지 않는다.
+- endpoint 및 credential 정보는 rclone.conf 내 remote 단위로 정의된다.
+
+8. worker.sh 동작 방식
+8.1 Worker 식별
+- Pod hostname에서 index 추출
+- 예: rclone-worker-3 -> worker_id = 3
+
+8.2 작업 수집
+- 외부 시스템(DB, Queue, API 등)에서 Pull 방식으로 작업 수집
+- worker_id 및 total_worker 수 기준으로 shard 처리
+- 각 Worker는 자신에게 할당된 작업만 처리
+
+8.3 작업 데이터 포맷 (논리적 정의)
+- job_id (고유 식별자)
+- rclone remote name
+- source_path (bucket/path/file)
+- target_path (local filesystem path)
+
+8.4 작업 처리 방식
+- 파일 1개당 rclone 1회 실행
+- rclone copyto 명령 사용
+- GET 방식만 사용
+- LIST, recursive 동작 금지
+
+8.5 rclone 실행 원칙
+- 사전 정의된 rclone remote만 사용
+- Worker는 endpoint 및 credential을 직접 취급하지 않음
+- 메모리 사용량 예측 가능성 확보
+- 실패 시 해당 파일만 재처리 가능
+
+8.6 결과 처리
+- 작업 종료 후 즉시 결과 생성
+- 성공/실패 여부, 에러 메시지, 처리 시간 포함
+- 외부 시스템으로 결과 전송
+
+8.7 반복 처리
+- 무한 루프 구조
+- 작업이 없을 경우 짧은 sleep 후 재시도
+
+9. 실패 및 재처리 전략
+- 모든 작업은 job_id 기준으로 추적
+- 실패 작업은 외부 시스템에서 재할당 가능
+- Worker 재시작 시 중복 처리는 외부 시스템에서 제어
+
+10. 상태 관리 원칙
+- Worker 내부에 상태를 저장하지 않음
+- 모든 상태는 외부 시스템(DB, Queue 등)에 저장
+- credential 및 endpoint 정보는 Worker 내부 상태로 관리하지 않음
+- rclone 설정은 외부 설정 관리(ConfigMap/Secret)에 의해 주입됨
+
+11. 로그 및 관측성
+- 모든 작업 단위 로그 출력
+- worker_id, job_id 포함
+- Kubernetes 로그 수집 시스템과 연계
+
+12. 확장 전략
+- StatefulSet replica 수 조정으로 수평 확장
+- Worker 수 증가 시 자동 shard 분산
+- 별도 코드 변경 없이 확장 가능
+
+13. 기존 NiFi 대비 기대 효과
+- 메모리 사용량 대폭 감소
+- 구조 단순화
+- 운영 및 장애 대응 난이도 감소
+- 대량 파일 처리 시 안정성 확보
+
+14. 보안 고려 사항
+- rclone credential은 Kubernetes Secret으로 관리
+- 컨테이너 이미지에 credential 하드코딩 금지
+- Worker 로그에 credential 출력 금지
+- 네트워크 보안은 별도 정책으로 관리
+
+15. 향후 확장 가능성
+- 작업 소스 DB/Queue 교체 가능
+- 결과 저장 방식 확장 가능
+- retry 정책 고도화 가능
+- remote 단위 트래픽 제어 및 정책 분리 가능
