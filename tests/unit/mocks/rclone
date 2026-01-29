@@ -1,0 +1,31 @@
+#!/bin/bash
+# Mock rclone for testing
+# Supports:
+#   MOCK_RCLONE_EXIT - exit code (default 0)
+#   MOCK_RCLONE_DELAY - delay in seconds (default 0)
+#   MOCK_RCLONE_CREATE_FILE - create output file (default 0)
+#   MOCK_RCLONE_LOG - log invocation to file
+
+DELAY=${MOCK_RCLONE_DELAY:-0}
+EXIT_CODE=${MOCK_RCLONE_EXIT:-0}
+
+sleep "$DELAY"
+
+# Log if requested
+if [[ -n "${MOCK_RCLONE_LOG:-}" ]]; then
+  echo "$(date '+%Y-%m-%d %H:%M:%S') rclone $*" >> "$MOCK_RCLONE_LOG"
+fi
+
+# Create output file if requested
+if [[ "${MOCK_RCLONE_CREATE_FILE:-0}" == "1" ]]; then
+  # Extract destination from args (typically last absolute path)
+  for arg in "$@"; do
+    if [[ "$arg" == /* ]]; then
+      mkdir -p "$(dirname "$arg")"
+      echo "mock content" > "$arg"
+      break
+    fi
+  done
+fi
+
+exit $EXIT_CODE

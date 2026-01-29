@@ -1,0 +1,142 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  integration-tests:
+    name: Run Integration Tests
+    runs-on: ubuntu-latest
+
+    services:
+      minio:
+        image: minio/minio:latest
+        ports:
+          - 9000:9000
+          - 9001:9001
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+        volumes:
+          - minio-data:/data
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          # Install rclone
+          sudo apt-get update
+          sudo apt-get install -y rclone
+
+          # Install MinIO client
+          curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o mc
+          chmod +x mc
+          sudo mv mc /usr/local/bin/
+
+          # Install jq (for JSON parsing)
+          sudo apt-get install -y jq
+
+      - name: Verify services
+        run: |
+          echo "Waiting for MinIO..."
+          timeout 30 bash -c 'until curl -sf http://localhost:9000/minio/health/live; do sleep 1; done'
+          echo "MinIO is ready"
+
+      - name: Setup test environment
+        run: |
+          cd tests/integration
+          ./setup.sh
+
+      - name: Run E2E tests
+        run: |
+          cd tests/integration
+          ./test_e2e.sh
+
+      - name: Run multi-worker tests
+        run: |
+          cd tests/integration
+          ./test_multiworker.sh
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: |
+            tests/integration/testdata/
+            tests/integration/*.log
+          retention-days: 7
+
+      - name: Test summary
+        if: always()
+        run: |
+          echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f tests/integration/test_results.txt ]; then
+            cat tests/integration/test_results.txt >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Test results not found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  docker-integration:
+    name: Docker Compose Integration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rclone
+          curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o mc
+          chmod +x mc
+          sudo mv mc /usr/local/bin/
+
+      - name: Start services with Docker Compose
+        run: |
+          cd tests/integration
+          docker-compose up -d
+
+      - name: Wait for services
+        run: |
+          cd tests/integration
+          timeout 60 bash -c 'until curl -sf http://localhost:9000/minio/health/live; do sleep 1; done'
+
+      - name: Setup test data
+        run: |
+          cd tests/integration
+          ./setup.sh
+
+      - name: Run all tests
+        run: |
+          cd tests/integration
+          ./run_all_tests.sh --skip-setup
+
+      - name: Cleanup
+        if: always()
+        run: |
+          cd tests/integration
+          docker-compose down -v
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-test-logs
+          path: |
+            tests/integration/testdata/
+            tests/integration/*.log
+          retention-days: 7

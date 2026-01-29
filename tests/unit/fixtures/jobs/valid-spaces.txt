@@ -1,0 +1,1 @@
+s3_a|mybucket/my folder/my file.txt|/data/my folder/my file.txt

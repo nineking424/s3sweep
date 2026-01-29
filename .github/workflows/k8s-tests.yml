@@ -1,0 +1,120 @@
+name: Kubernetes Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  CLUSTER_NAME: s3sweep-test
+  FAIL_FAST: 1
+
+jobs:
+  k8s-tests:
+    name: Kubernetes Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install prerequisites
+        run: |
+          # Install kind
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+          # Install jq (usually pre-installed on GitHub runners)
+          sudo apt-get update && sudo apt-get install -y jq
+
+          # Verify installations
+          kind version
+          kubectl version --client
+          jq --version
+
+      - name: Setup test environment
+        working-directory: tests/k8s
+        run: |
+          ./setup.sh
+
+      - name: Run scaling tests
+        working-directory: tests/k8s
+        run: |
+          ./test_scaling.sh
+
+      - name: Run health probe tests
+        working-directory: tests/k8s
+        run: |
+          ./test_probes.sh
+
+      - name: Run orphan recovery tests
+        working-directory: tests/k8s
+        run: |
+          ./test_orphan_recovery.sh
+
+      - name: Run termination tests
+        working-directory: tests/k8s
+        run: |
+          ./test_termination.sh
+
+      - name: Run volume tests
+        working-directory: tests/k8s
+        run: |
+          ./test_volumes.sh
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Cluster Info ==="
+          kubectl cluster-info
+
+          echo "=== Nodes ==="
+          kubectl get nodes -o wide
+
+          echo "=== All Resources ==="
+          kubectl get all -n s3sweep-test
+          kubectl get all -n minio
+
+          echo "=== Pod Descriptions ==="
+          kubectl describe pods -n s3sweep-test
+
+          echo "=== Pod Logs ==="
+          for pod in $(kubectl get pods -n s3sweep-test -o name); do
+            echo "--- Logs from $pod ---"
+            kubectl logs $pod -n s3sweep-test --tail=100 || true
+          done
+
+          echo "=== Events ==="
+          kubectl get events -n s3sweep-test --sort-by='.lastTimestamp'
+          kubectl get events -n minio --sort-by='.lastTimestamp'
+
+      - name: Cleanup
+        if: always()
+        run: |
+          kind delete cluster --name $CLUSTER_NAME || true
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: k8s-tests
+    if: always()
+
+    steps:
+      - name: Check test results
+        run: |
+          if [ "${{ needs.k8s-tests.result }}" == "success" ]; then
+            echo "✅ All Kubernetes tests passed!"
+            exit 0
+          else
+            echo "❌ Kubernetes tests failed"
+            exit 1
+          fi

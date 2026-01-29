@@ -1,0 +1,130 @@
+---
+# MinIO deployment for in-cluster S3 testing
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: minio
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-pvc
+  namespace: minio
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:latest
+          args:
+            - server
+            - /data
+            - --console-address
+            - ":9001"
+          env:
+            - name: MINIO_ROOT_USER
+              value: "minioadmin"
+            - name: MINIO_ROOT_PASSWORD
+              value: "minioadmin"
+          ports:
+            - containerPort: 9000
+              name: api
+            - containerPort: 9001
+              name: console
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: minio-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: minio
+spec:
+  selector:
+    app: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+  type: ClusterIP
+
+---
+# Job to create test buckets and upload test data
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-setup
+  namespace: minio
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: minio/mc:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              # Wait for MinIO to be ready
+              until mc alias set myminio http://minio:9000 minioadmin minioadmin; do
+                echo "Waiting for MinIO..."
+                sleep 2
+              done
+
+              # Create test buckets
+              mc mb myminio/test-bucket-a || true
+              mc mb myminio/test-bucket-b || true
+              mc mb myminio/test-bucket-c || true
+
+              # Upload test files
+              for bucket in test-bucket-a test-bucket-b test-bucket-c; do
+                for i in $(seq 1 100); do
+                  echo "Test file $i in $bucket" | mc pipe myminio/$bucket/path/to/file-$i.txt
+                done
+              done
+
+              echo "MinIO setup complete"

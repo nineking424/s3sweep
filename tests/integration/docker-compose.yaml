@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: s3sweep-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - s3sweep-test
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:latest
+    container_name: s3sweep-toxiproxy
+    ports:
+      - "8474:8474"  # API
+      - "19000:19000"  # Proxy to MinIO
+    networks:
+      - s3sweep-test
+    depends_on:
+      - minio
+
+networks:
+  s3sweep-test:
+    driver: bridge

@@ -154,6 +154,16 @@ process_job() {
     return 1
   fi
 
+  # Validate field count (exactly 2 pipes expected)
+  local pipe_count
+  pipe_count=$(echo "$job_spec" | tr -cd '|' | wc -c)
+  if [[ "$pipe_count" -ne 2 ]]; then
+    log_job "ERROR" "$job_basename" 0 "Invalid job format: expected 2 field separators, got $pipe_count"
+    mv "$job_file" "${FAILED_DIR}/${job_basename}" 2>/dev/null || true
+    CURRENT_JOB_FILE=""
+    return 1
+  fi
+
   # Parse job specification
   IFS='|' read -r remote_name src_path dst_path <<< "$job_spec"
 

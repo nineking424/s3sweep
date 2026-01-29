@@ -1,0 +1,33 @@
+# Kind cluster configuration for s3sweep testing
+# 1 control plane + 3 worker nodes
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # MinIO API port
+      - containerPort: 9000
+        hostPort: 9000
+        protocol: TCP
+      # MinIO Console port
+      - containerPort: 9001
+        hostPort: 9001
+        protocol: TCP
+
+  - role: worker
+    labels:
+      worker-zone: zone-a
+
+  - role: worker
+    labels:
+      worker-zone: zone-b
+
+  - role: worker
+    labels:
+      worker-zone: zone-c

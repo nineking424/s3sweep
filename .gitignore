@@ -1,0 +1,27 @@
+# Test artifacts
+tests/integration/testdata/
+tests/integration/rclone.conf
+tests/integration/*.log
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+
+# Kubernetes secrets (never commit!)
+*secret*.yaml
+!secret-example.yaml
+
+# Environment files
+.env
+.env.local
