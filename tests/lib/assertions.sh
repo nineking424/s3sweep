@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# Note: Do NOT use 'set -euo pipefail' here - this file is sourced by bats
+# which manages its own error handling
 
 # Test Assertion Functions for s3sweep
 # Provides assertion utilities for validating test conditions
 
-# Color codes for output
-readonly COLOR_GREEN='\033[0;32m'
-readonly COLOR_RED='\033[0;31m'
-readonly COLOR_RESET='\033[0m'
+# Color codes for output (use existing from helpers.sh or define if not set)
+: "${COLOR_GREEN:='\033[0;32m'}"
+: "${COLOR_RED:='\033[0;31m'}"
+: "${COLOR_RESET:='\033[0m'}"
 
 # Global counters
 ASSERTION_COUNT=0

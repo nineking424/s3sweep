@@ -5,8 +5,8 @@
 # Total: 38 unit tests covering job parsing, claiming, validation, logging, shutdown, and startup
 
 # Load test helpers
-load '../lib/helpers.sh'
-load '../lib/assertions.sh'
+load '../lib/helpers'
+load '../lib/assertions'
 
 setup() {
   setup_test_env

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# Note: Do NOT use 'set -euo pipefail' here - this file is sourced by bats
+# which manages its own error handling
 
 # Test Helper Functions for s3sweep
 # Provides common utilities for setting up test environments, managing workers, and handling test data
