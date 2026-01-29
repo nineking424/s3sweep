@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rclone-worker
+spec:
+  serviceName: rclone-worker
+  replicas: 8
+  selector:
+    matchLabels:
+      app: rclone-worker
+  template:
+    metadata:
+      labels:
+        app: rclone-worker
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: worker
+        image: your-registry/rclone-worker:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/app/worker.sh"]
+        env:
+        - name: TOTAL_WORKERS
+          value: "8"
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "1"
+            memory: "512Mi"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /etc/rclone
+          readOnly: true
+      volumes:
+      - name: rclone-config
+        projected:
+          sources:
+          - configMap:
+              name: rclone-config
+          - secret:
+              name: rclone-secret
