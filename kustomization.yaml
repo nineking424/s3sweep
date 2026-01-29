@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Standard kustomize configuration for s3sweep
+metadata:
+  name: s3sweep
+
+# Common labels applied to all resources
+commonLabels:
+  app: s3sweep
+
+# Name prefix for all resources (empty for easy customization)
+namePrefix: ""
+
+# Resources to include in the kustomization
+resources:
+  - configmap.yaml
+  - secret.yaml
+  - pvc-jobs.yaml
+  - service.yaml
+  - statefulset.yaml

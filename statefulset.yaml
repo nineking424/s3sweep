@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rclone-worker
+  labels:
+    app: rclone-worker
+    component: worker
+  annotations:
+    description: "StatefulSet for s3sweep rclone workers - GET-only S3 file transfer"
+spec:
+  serviceName: rclone-worker
+  replicas: 3  # Adjust based on workload - each replica = 1 concurrent download
+  selector:
+    matchLabels:
+      app: rclone-worker
+  template:
+    metadata:
+      labels:
+        app: rclone-worker
+        component: worker
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: worker
+        image: s3sweep:latest  # Replace with your registry/image
+        imagePullPolicy: IfNotPresent
+        command: ["/app/worker.sh"]
+        env:
+        - name: TOTAL_WORKERS
+          value: "3"  # Must match replicas count
+        - name: JOBS_DIR
+          value: "/jobs"
+        - name: DATA_DIR
+          value: "/data"
+        - name: WORKER_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name  # Provides pod index via rclone-worker-0, rclone-worker-1, etc.
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "1"
+            memory: "512Mi"
+        volumeMounts:
+        - name: rclone-config
+          mountPath: /etc/rclone
+          readOnly: true
+        - name: jobs
+          mountPath: /jobs
+        - name: data
+          mountPath: /data
+        readinessProbe:
+          exec:
+            command:
+            - cat
+            - /tmp/healthy
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          exec:
+            command:
+            - cat
+            - /tmp/healthy
+          initialDelaySeconds: 15
+          periodSeconds: 20
+      volumes:
+      - name: rclone-config
+        projected:
+          sources:
+          - configMap:
+              name: rclone-config
+          - secret:
+              name: rclone-secret
+      - name: jobs
+        persistentVolumeClaim:
+          claimName: jobs-pvc
+      - name: data
+        emptyDir: {}  # Per-pod temporary storage for downloads

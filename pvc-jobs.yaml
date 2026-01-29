@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jobs-pvc
+  labels:
+    app: rclone-worker
+    component: storage
+  annotations:
+    description: "Shared storage for job coordination between rclone workers"
+spec:
+  accessModes:
+    - ReadWriteMany  # Required for multiple workers to access simultaneously
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName: ""  # Uncomment and set to your storage class if default is not suitable
+  # For ReadWriteMany support, consider NFS, CephFS, or cloud-provider solutions (EFS, Azure Files, etc.)

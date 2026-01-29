@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rclone-worker
+  labels:
+    app: rclone-worker
+    component: worker
+  annotations:
+    description: "Headless service for StatefulSet DNS - provides stable network identities"
+spec:
+  clusterIP: None  # Headless service
+  selector:
+    app: rclone-worker
+  # No ports needed - workers are pull-based, not serving traffic
