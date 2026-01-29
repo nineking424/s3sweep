@@ -20,7 +20,7 @@ Thumbs.db
 
 # Kubernetes secrets (never commit!)
 *secret*.yaml
-!secret-example.yaml
+!examples/secret.yaml
 
 # Environment files
 .env
