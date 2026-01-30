@@ -135,7 +135,14 @@ process_job() {
 
   CURRENT_JOB_FILE="$job_file"
   local start_time
-  start_time=$(date +%s%3N)  # milliseconds
+  # Get milliseconds (use nanoseconds on Linux, fallback to seconds*1000 on macOS)
+  local test_ns
+  test_ns=$(date +%N 2>/dev/null || echo "N")
+  if [[ "$test_ns" != "N" ]] && [[ "$test_ns" =~ ^[0-9]+$ ]]; then
+    start_time=$(date +%s%3N)
+  else
+    start_time=$(($(date +%s) * 1000))
+  fi
 
   # Read job specification (one line: remote|src_path|dst_path)
   if [[ ! -f "$job_file" ]]; then
@@ -200,7 +207,14 @@ process_job() {
   rclone_exit="${PIPESTATUS[0]}"
 
   local end_time
-  end_time=$(date +%s%3N)
+  # Get milliseconds (use nanoseconds on Linux, fallback to seconds*1000 on macOS)
+  local test_ns
+  test_ns=$(date +%N 2>/dev/null || echo "N")
+  if [[ "$test_ns" != "N" ]] && [[ "$test_ns" =~ ^[0-9]+$ ]]; then
+    end_time=$(date +%s%3N)
+  else
+    end_time=$(($(date +%s) * 1000))
+  fi
   local elapsed_ms=$((end_time - start_time))
 
   if [[ "$rclone_exit" -eq 0 ]]; then
