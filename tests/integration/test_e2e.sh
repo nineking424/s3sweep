@@ -235,17 +235,13 @@ test_different_file_sizes() {
 
     setup_test_env
 
-    # Test files: 1KB, 1MB, 100MB
-    declare -A files=(
-        ["1kb"]="file_1kb.bin:1024"
-        ["1mb"]="file_1mb.bin:1048576"
-        ["100mb"]="file_100mb.bin:104857600"
-    )
+    # Test files: small (1KB), medium (1MB), large (100MB)
+    local test_files="file_1kb.bin:1024:small file_1mb.bin:1048576:medium file_100mb.bin:104857600:large"
 
-    for key in "${!files[@]}"; do
-        IFS=':' read -r filename expected_size <<< "${files[$key]}"
+    for entry in $test_files; do
+        IFS=':' read -r filename expected_size label <<< "$entry"
 
-        local job_id="job-size-${key}"
+        local job_id="job-size-${label}"
         local dst_path="${TEST_DATA_DIR}/${filename}"
 
         create_job "${job_id}" "${job_id}|s3test|${TEST_BUCKET}/test/${filename}|${dst_path}"

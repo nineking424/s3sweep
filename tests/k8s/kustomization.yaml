@@ -2,11 +2,13 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Reference base manifests
+# Base resources are copied here from parent directory
+# Run: cp ../../{configmap,secret,statefulset}.yaml ./base_resources/ before kustomizing
+# Or use the build script: ./build-test-manifests.sh
 resources:
-  - ../../configmap-example.yaml
-  - ../../secret-example.yaml
-  - ../../statefulset-example.yaml
+  - base_resources/configmap.yaml
+  - base_resources/secret.yaml
+  - base_resources/statefulset.yaml
 
 # Namespace for test deployment
 namespace: s3sweep-test
@@ -61,33 +63,33 @@ patches:
           [s3_a]
           type = s3
           provider = Minio
-          endpoint = http://minio.minio.svc.cluster.local:9000
+          endpoint = http://minio.minio-test.svc.cluster.local:9000
           access_key_id = minioadmin
           secret_access_key = minioadmin
 
           [s3_b]
           type = s3
           provider = Minio
-          endpoint = http://minio.minio.svc.cluster.local:9000
+          endpoint = http://minio.minio-test.svc.cluster.local:9000
           access_key_id = minioadmin
           secret_access_key = minioadmin
 
           [s3_c]
           type = s3
           provider = Minio
-          endpoint = http://minio.minio.svc.cluster.local:9000
+          endpoint = http://minio.minio-test.svc.cluster.local:9000
           access_key_id = minioadmin
           secret_access_key = minioadmin
 
-  # Use emptyDir for testing (no NFS)
+  # Replace jobs PVC with emptyDir for testing (no shared storage needed)
   - target:
       kind: StatefulSet
       name: rclone-worker
     patch: |-
       - op: replace
-        path: /spec/template/spec/volumes/0
+        path: /spec/template/spec/volumes/1
         value:
-          name: data
+          name: jobs
           emptyDir: {}
 
 # Set initial replica count to 1

@@ -2,6 +2,7 @@
 tests/integration/testdata/
 tests/integration/rclone.conf
 tests/integration/*.log
+tests/k8s/base_resources/
 
 # Temporary files
 *.tmp

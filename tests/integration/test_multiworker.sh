@@ -81,11 +81,10 @@ test_100_jobs_3_workers() {
         create_job "${job_id}" "${job_id}|s3test|${TEST_BUCKET}/test/test.txt|${dst_path}"
     done
 
-    # Track which worker processed which job
-    declare -A worker_counts
-    for w in $(seq 0 $((num_workers-1))); do
-        worker_counts[$w]=0
-    done
+    # Track which worker processed which job (bash 3.x compatible)
+    local worker_count_0=0
+    local worker_count_1=0
+    local worker_count_2=0
 
     # Simulate workers processing jobs in parallel
     test_info "Workers processing jobs..."
@@ -116,7 +115,12 @@ test_100_jobs_3_workers() {
                     if [ -f "${dst_path}" ]; then
                         mv "${TEST_JOBS_DIR}/processing/${job_name}.job" \
                            "${TEST_JOBS_DIR}/done/${job_name}.job"
-                        worker_counts[$worker_id]=$((worker_counts[$worker_id] + 1))
+                        # Increment worker count
+                        case $worker_id in
+                            0) worker_count_0=$((worker_count_0 + 1)) ;;
+                            1) worker_count_1=$((worker_count_1 + 1)) ;;
+                            2) worker_count_2=$((worker_count_2 + 1)) ;;
+                        esac
                         jobs_processed=$((jobs_processed + 1))
                     fi
                 fi
@@ -129,9 +133,9 @@ test_100_jobs_3_workers() {
     test_info "Jobs completed: ${done_count}/${num_jobs}"
 
     # Show distribution
-    for w in $(seq 0 $((num_workers-1))); do
-        test_info "Worker ${w}: ${worker_counts[$w]} jobs"
-    done
+    test_info "Worker 0: ${worker_count_0} jobs"
+    test_info "Worker 1: ${worker_count_1} jobs"
+    test_info "Worker 2: ${worker_count_2} jobs"
 
     assert_equals "${done_count}" "${num_jobs}"
 
@@ -163,7 +167,8 @@ test_no_duplicate_processing() {
     # Process all jobs with simulated concurrency
     test_info "Processing jobs with duplicate detection..."
 
-    declare -A processed_jobs
+    # Track processed jobs with newline-separated list (bash 3.x compatible)
+    local processed_jobs=""
 
     while true; do
         local job_file=$(find "${TEST_JOBS_DIR}/pending" -name "job-dup-*.job" -type f | head -n 1)
@@ -172,7 +177,7 @@ test_no_duplicate_processing() {
         local job_name=$(basename "$job_file" .job)
 
         # Check if already processed
-        if [ -n "${processed_jobs[$job_name]:-}" ]; then
+        if echo -e "$processed_jobs" | grep -q "^${job_name}$"; then
             test_error "DUPLICATE: Job ${job_name} already processed!"
             cleanup_test_env
             return 1
@@ -190,14 +195,14 @@ test_no_duplicate_processing() {
                 if [ -f "${dst_path}" ]; then
                     mv "${TEST_JOBS_DIR}/processing/${job_name}.job" \
                        "${TEST_JOBS_DIR}/done/${job_name}.job"
-                    processed_jobs[$job_name]=1
+                    processed_jobs="${processed_jobs}${job_name}\n"
                 fi
             fi
         fi
     done
 
     # Verify count
-    local unique_count=${#processed_jobs[@]}
+    local unique_count=$(echo -e "$processed_jobs" | grep -v '^$' | wc -l | tr -d ' ')
     test_info "Unique jobs processed: ${unique_count}"
 
     assert_equals "${unique_count}" "${num_jobs}"
@@ -231,11 +236,10 @@ test_fair_distribution() {
         create_job "${job_id}" "${job_id}|s3test|${TEST_BUCKET}/test/test.txt|${dst_path}"
     done
 
-    # Simulate workers with round-robin distribution
-    declare -A worker_counts
-    for w in $(seq 0 $((num_workers-1))); do
-        worker_counts[$w]=0
-    done
+    # Simulate workers with round-robin distribution (bash 3.x compatible)
+    local worker_count_0=0
+    local worker_count_1=0
+    local worker_count_2=0
 
     local current_worker=0
     while true; do
@@ -255,7 +259,12 @@ test_fair_distribution() {
                 if [ -f "${dst_path}" ]; then
                     mv "${TEST_JOBS_DIR}/processing/${job_name}.job" \
                        "${TEST_JOBS_DIR}/done/${job_name}.job"
-                    worker_counts[$current_worker]=$((worker_counts[$current_worker] + 1))
+                    # Increment worker count
+                    case $current_worker in
+                        0) worker_count_0=$((worker_count_0 + 1)) ;;
+                        1) worker_count_1=$((worker_count_1 + 1)) ;;
+                        2) worker_count_2=$((worker_count_2 + 1)) ;;
+                    esac
                 fi
             fi
 
@@ -268,18 +277,35 @@ test_fair_distribution() {
     test_info "Distribution (expected: ${expected_per_worker} ± ${tolerance}):"
     local distribution_ok=1
 
-    for w in $(seq 0 $((num_workers-1))); do
-        local count=${worker_counts[$w]}
-        test_info "Worker ${w}: ${count} jobs"
+    # Check worker 0
+    local count=$worker_count_0
+    test_info "Worker 0: ${count} jobs"
+    local diff=$((count - expected_per_worker))
+    [ $diff -lt 0 ] && diff=$((-diff))
+    if [ $diff -gt $tolerance ]; then
+        test_error "Worker 0 distribution outside tolerance: ${count} (expected ${expected_per_worker} ± ${tolerance})"
+        distribution_ok=0
+    fi
 
-        local diff=$((count - expected_per_worker))
-        [ $diff -lt 0 ] && diff=$((-diff))
+    # Check worker 1
+    count=$worker_count_1
+    test_info "Worker 1: ${count} jobs"
+    diff=$((count - expected_per_worker))
+    [ $diff -lt 0 ] && diff=$((-diff))
+    if [ $diff -gt $tolerance ]; then
+        test_error "Worker 1 distribution outside tolerance: ${count} (expected ${expected_per_worker} ± ${tolerance})"
+        distribution_ok=0
+    fi
 
-        if [ $diff -gt $tolerance ]; then
-            test_error "Worker ${w} distribution outside tolerance: ${count} (expected ${expected_per_worker} ± ${tolerance})"
-            distribution_ok=0
-        fi
-    done
+    # Check worker 2
+    count=$worker_count_2
+    test_info "Worker 2: ${count} jobs"
+    diff=$((count - expected_per_worker))
+    [ $diff -lt 0 ] && diff=$((-diff))
+    if [ $diff -gt $tolerance ]; then
+        test_error "Worker 2 distribution outside tolerance: ${count} (expected ${expected_per_worker} ± ${tolerance})"
+        distribution_ok=0
+    fi
 
     [ $distribution_ok -eq 1 ]
 
@@ -384,19 +410,21 @@ test_worker_sharding() {
         create_job "${job_id}" "${job_id}|s3test|${TEST_BUCKET}/test/test.txt|${dst_path}"
     done
 
-    # Simulate workers with sharding logic
+    # Simulate workers with sharding logic (bash 3.x compatible)
     # Worker N processes jobs where hash(job_id) % TOTAL_WORKERS == N
-    declare -A worker_counts
+    local worker_count_0=0
+    local worker_count_1=0
+    local worker_count_2=0
 
     for worker_id in $(seq 0 $((num_workers-1))); do
-        worker_counts[$worker_id]=0
-
         # Find jobs for this worker's shard
         for job_file in $(find "${TEST_JOBS_DIR}/pending" -name "job-shard-*.job" -type f); do
             local job_name=$(basename "$job_file" .job)
 
             # Simple sharding: extract number from job name
-            local job_num=$(echo "$job_name" | grep -o '[0-9]\+$')
+            local job_num=$(echo "$job_name" | grep -o '[0-9]\+$' | sed 's/^0*//')
+            # Handle case where number is "000" → becomes empty → default to 0
+            [ -z "$job_num" ] && job_num=0
             local shard=$((job_num % num_workers))
 
             # Process only if it matches this worker's shard
@@ -412,7 +440,12 @@ test_worker_sharding() {
                         if [ -f "${dst_path}" ]; then
                             mv "${TEST_JOBS_DIR}/processing/${job_name}.job" \
                                "${TEST_JOBS_DIR}/done/${job_name}.job"
-                            worker_counts[$worker_id]=$((worker_counts[$worker_id] + 1))
+                            # Increment worker count
+                            case $worker_id in
+                                0) worker_count_0=$((worker_count_0 + 1)) ;;
+                                1) worker_count_1=$((worker_count_1 + 1)) ;;
+                                2) worker_count_2=$((worker_count_2 + 1)) ;;
+                            esac
                         fi
                     fi
                 fi
@@ -425,9 +458,9 @@ test_worker_sharding() {
     test_info "Jobs completed: ${done_count}/${num_jobs}"
 
     # Show shard distribution
-    for w in $(seq 0 $((num_workers-1))); do
-        test_info "Worker ${w} (shard ${w}): ${worker_counts[$w]} jobs"
-    done
+    test_info "Worker 0 (shard 0): ${worker_count_0} jobs"
+    test_info "Worker 1 (shard 1): ${worker_count_1} jobs"
+    test_info "Worker 2 (shard 2): ${worker_count_2} jobs"
 
     assert_equals "${done_count}" "${num_jobs}"
 
